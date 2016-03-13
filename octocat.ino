@@ -196,18 +196,20 @@ void pingPongLoop() {
     pingPongAnimation(LEFT_CENTER, RIGHT_CENTER);
 }
 
-void blinkingRedLightsLoop() {
-    uint8_t dot = 0;
-    for (dot = 0; dot < NUM_LEDS; ++dot) {
-        leds[dot] = CRGB::Red;
+void blinkRedLights() {
+    for (uint8_t i = 0; i < 4; ++i) {
+        uint8_t dot = 0;
+        for (dot = 0; dot < NUM_LEDS; ++dot) {
+            leds[dot] = CRGB::Red;
+        }
+        FastLED.show();
+        delay(1000 / SPEED);
+        for (dot = 0; dot < NUM_LEDS; ++dot) {
+            leds[dot] = CRGB::Black;
+        }
+        FastLED.show();
+        delay(1000 / SPEED);
     }
-    FastLED.show();
-    delay(1000 / SPEED);
-    for (dot = 0; dot < NUM_LEDS; ++dot) {
-        leds[dot] = CRGB::Black;
-    }
-    FastLED.show();
-    delay(1000 / SPEED);
 }
 
 typedef void (*PatternArray[])();
@@ -218,6 +220,10 @@ PatternArray patterns = {
 uint8_t currentPattern = 0;
 
 void nextPattern() {
+    uint8_t blinkOdds = random8(10);
+    if (blinkOdds == 0) {
+        blinkRedLights();
+    }
     currentPattern = (
         (currentPattern + 1) % (sizeof(patterns) / sizeof(patterns[0])));
 }
@@ -231,7 +237,6 @@ void setup() {
 }
 
 void loop() {
-    /* turnOffLights(); */
     patterns[currentPattern]();
     FastLED.delay(1000 / FPS);
     EVERY_N_SECONDS(5) { nextPattern(); }
