@@ -15,18 +15,22 @@
 #define NUM_LEDS 180
 #define SPEED 10
 
-const uint8_t LEFT_CENTER = (
-    LED_GROUP_SIZE % 2 == 0 ? (LED_GROUP_SIZE / 2) - 1 : LED_GROUP_SIZE / 2);
-
-const uint8_t RIGHT_CENTER = LED_GROUP_SIZE / 2;
-
-const uint8_t DIST_CENTER = (
-    LED_GROUP_SIZE % 2 == 0 ? LED_GROUP_SIZE / 2 : (LED_GROUP_SIZE / 2) + 1);
-
-const uint8_t HUE_DISTANCES[NUM_HUE_DISTANCES] = {0, 127, 42, 170, 234, 191};
-
 CRGB leds[NUM_LEDS];
 CHSV hsvs[NUM_LEDS];
+
+const uint8_t LEFT_CENTER = (
+    LED_GROUP_SIZE % 2 == 0 ? (LED_GROUP_SIZE / 2) - 1 : LED_GROUP_SIZE / 2);
+const uint8_t RIGHT_CENTER = LED_GROUP_SIZE / 2;
+const uint8_t DIST_CENTER = (
+    LED_GROUP_SIZE % 2 == 0 ? LED_GROUP_SIZE / 2 : (LED_GROUP_SIZE / 2) + 1);
+const uint8_t HUE_DISTANCES[NUM_HUE_DISTANCES] = {0, 127, 42, 170, 234, 191};
+
+boolean flashRed = false;
+uint8_t currentPattern = 0;
+uint8_t buttonState;
+uint8_t lastButtonState = LOW;
+uint64_t lastDebounceTime;
+uint64_t debounceDelay = 50;
 
 uint8_t calcHueForGroup(uint8_t baseHue, uint8_t group) {
     uint8_t hueDistance = (group / LED_GROUP_SIZE) % NUM_HUE_DISTANCES;
@@ -217,19 +221,31 @@ PatternArray patterns = {
     twinkleLoop, pingPongLoop, movingLoop, panningLoop
 };
 
-uint8_t currentPattern = 0;
-
 void nextPattern() {
-    uint8_t blinkOdds = random8(10);
-    if (blinkOdds == 0) {
-        blinkRedLights();
-    }
     currentPattern = (
         (currentPattern + 1) % (sizeof(patterns) / sizeof(patterns[0])));
 }
 
+void changeMode() {
+    uint8_t buttonReading = digitalRead(BUTTON_PIN);
+    if (buttonReading != lastButtonState) {
+        lastDebounceTime = millis();
+    }
+    if ((millis() - lastDebounceTime) > debounceDelay) {
+        if (buttonReading != buttonState) {
+            buttonState = buttonReading;
+            if (buttonState == HIGH) {
+                flashRed = !flashRed;
+            }
+        }
+    }
+    flashRed = !flashRed;
+}
+
 void setup() {
     Serial.begin(9600);
+    pinMode(BUTTON_PIN, INPUT);
+    attachInterrupt(digitalPinToInterrupt(BUTTON_PIN), changeMode, FALLING);
     FastLED.addLeds<DOTSTAR, DATA_PIN, CLOCK_PIN>(
         leds, NUM_LEDS).setCorrection(TypicalSMD5050);
     FastLED.setTemperature(CarbonArc);
@@ -237,7 +253,11 @@ void setup() {
 }
 
 void loop() {
-    patterns[currentPattern]();
+    if (flashRed) {
+        blinkRedLights();
+    } else {
+        patterns[currentPattern]();
+    }
     FastLED.delay(1000 / FPS);
     EVERY_N_SECONDS(5) { nextPattern(); }
 }
