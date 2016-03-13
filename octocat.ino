@@ -2,10 +2,11 @@
 
 #define CLOCK_PIN 13
 #define DATA_PIN 12
-#define DEFAULT_BRIGHTNESS 127
+#define DEFAULT_BRIGHTNESS 191
 #define DEFAULT_HUE 5
 #define DEFAULT_SAT 191
-#define LED_GROUP_SIZE 6
+#define FPS 120
+#define LED_GROUP_SIZE NUM_LEDS / 12
 #define MAX_BRIGHTNESS 223
 #define MAX_SAT 255
 #define MIN_BRIGHTNESS 63
@@ -40,23 +41,6 @@ void turnOffLights() {
     FastLED.show();
 }
 
-uint8_t mapByteToRange(
-        uint8_t val, boolean positive, uint8_t minVal, uint8_t maxVal) {
-    if (positive) {
-        return map(val, 0, 256, minVal, maxVal);
-    } else {
-        return map(val, 0, 256, maxVal, minVal);
-    }
-}
-
-uint8_t mapBrightness(uint8_t val, boolean positive) {
-    return mapByteToRange(val, positive, MIN_BRIGHTNESS, MAX_BRIGHTNESS);
-}
-
-uint8_t mapSaturation(uint8_t val, boolean positive) {
-    return mapByteToRange(val, positive, MIN_SAT, MAX_SAT);
-}
-
 void setupHuesForGroups() {
     uint8_t baseHue = DEFAULT_HUE;
     uint8_t hue;
@@ -71,48 +55,44 @@ void setupHuesForGroups() {
     }
 }
 
-void twinkleLoop(uint8_t numLoops) {
+void twinkleLoop() {
     uint8_t wave, brightUp, brightDown;
     setupHuesForGroups();
-    for (uint8_t i = 0; i < numLoops; ++i) {
-        for (uint16_t fade = 0; fade <= 255; ++fade) {
-            wave = sin8(fade);
-            brightUp = mapBrightness(wave, true);
-            brightDown = mapBrightness(wave, false);
-            for (uint16_t dot = 0; dot < NUM_LEDS; ++dot) {
-                if (dot % 2 == 0) {
-                    hsvs[dot].val = brightDown;
-                } else {
-                    hsvs[dot].val = brightUp;
-                }
-                hsvs[dot].sat = mapSaturation(wave, true);
+    for (uint16_t fade = 0; fade <= 255; ++fade) {
+        wave = sin8(fade);
+        brightUp = lerp8by8(MIN_BRIGHTNESS, MAX_BRIGHTNESS, wave);
+        brightDown = lerp8by8(MAX_BRIGHTNESS, MIN_BRIGHTNESS, wave);
+        for (uint16_t dot = 0; dot < NUM_LEDS; ++dot) {
+            if (dot % 2 == 0) {
+                hsvs[dot].val = brightDown;
+            } else {
+                hsvs[dot].val = brightUp;
             }
-            hsv2rgb_rainbow(hsvs, leds, NUM_LEDS);
-            FastLED.show();
-            delay(10 / SPEED);
+            hsvs[dot].sat = lerp8by8(MIN_SAT, MAX_SAT, wave);
         }
+        hsv2rgb_rainbow(hsvs, leds, NUM_LEDS);
+        FastLED.show();
+        delay(10 / SPEED);
     }
 }
 
-void movingLoop(uint8_t numLoops) {
+void movingLoop() {
     uint8_t hue;
     setupHuesForGroups();
-    for (uint8_t loopNum = 0; loopNum < numLoops; ++loopNum) {
-        turnOffLights();
-        for (uint8_t i = 0; i < LED_GROUP_SIZE; ++i) {
-            for (uint16_t j = 0; j < NUM_LEDS; j += LED_GROUP_SIZE) {
-                hsvs[j + i].hue += 16;
-                hsvs[j + i].sat = MAX_SAT;
-                hsvs[j + i].val = DEFAULT_BRIGHTNESS;
-                for (uint8_t k = j; k < j + i; ++k) {
-                    hsvs[k].val = lerp8by8(0, hsvs[k].val, 128);
-                    hsvs[k].hue += 16;
-                }
+    turnOffLights();
+    for (uint8_t i = 0; i < LED_GROUP_SIZE; ++i) {
+        for (uint16_t j = 0; j < NUM_LEDS; j += LED_GROUP_SIZE) {
+            hsvs[j + i].hue += 16;
+            hsvs[j + i].sat = MAX_SAT;
+            hsvs[j + i].val = DEFAULT_BRIGHTNESS;
+            for (uint8_t k = j; k < j + i; ++k) {
+                hsvs[k].val = lerp8by8(0, hsvs[k].val, 128);
+                hsvs[k].hue += 16;
             }
-            hsv2rgb_rainbow(hsvs, leds, NUM_LEDS);
-            FastLED.show();
-            delay(1000 / SPEED);
         }
+        hsv2rgb_rainbow(hsvs, leds, NUM_LEDS);
+        FastLED.show();
+        delay(1000 / SPEED);
     }
 }
 
@@ -153,12 +133,10 @@ void panningAnimation(uint8_t left, uint8_t right, uint8_t len, boolean out) {
     }
 }
 
-void panningLoop(uint8_t numLoops) {
+void panningLoop() {
     setupHuesForGroups();
-    for (uint8_t i = 0; i < numLoops; ++i) {
-        panningAnimation(LEFT_CENTER, RIGHT_CENTER, DIST_CENTER, true);
-        panningAnimation(0, LED_GROUP_SIZE - 1, DIST_CENTER, false);
-    }
+    panningAnimation(LEFT_CENTER, RIGHT_CENTER, DIST_CENTER, true);
+    panningAnimation(0, LED_GROUP_SIZE - 1, DIST_CENTER, false);
     panningAnimation(LEFT_CENTER, RIGHT_CENTER, DIST_CENTER, true);
 }
 
@@ -213,38 +191,48 @@ void pingPongAnimation(uint8_t left, uint8_t right) {
     pingPongSide(left, 0, -1);
 }
 
-void pingPongLoop(uint8_t numLoops) {
+void pingPongLoop() {
     setupHuesForGroups();
-    for (uint8_t i = 0; i < numLoops; ++i) {
-        pingPongAnimation(LEFT_CENTER, RIGHT_CENTER);
-    }
+    pingPongAnimation(LEFT_CENTER, RIGHT_CENTER);
 }
 
-void blinkingRedLightsLoop(uint8_t numLoops) {
+void blinkingRedLightsLoop() {
     uint8_t dot = 0;
-    for (uint8_t i = 0; i < numLoops; ++i) {
-        for (dot = 0; dot < NUM_LEDS; ++dot) {
-            leds[dot] = CRGB::Red;
-            FastLED.show();
-        }
-        delay(30);
-        for (dot = 0; dot < NUM_LEDS; ++dot) {
-            leds[dot] = CRGB::Black;
-            FastLED.show();
-        }
-        delay(30);
+    for (dot = 0; dot < NUM_LEDS; ++dot) {
+        leds[dot] = CRGB::Red;
     }
+    FastLED.show();
+    delay(1000 / SPEED);
+    for (dot = 0; dot < NUM_LEDS; ++dot) {
+        leds[dot] = CRGB::Black;
+    }
+    FastLED.show();
+    delay(1000 / SPEED);
+}
+
+typedef void (*PatternArray[])();
+PatternArray patterns = {
+    twinkleLoop, pingPongLoop, movingLoop, panningLoop
+};
+
+uint8_t currentPattern = 0;
+
+void nextPattern() {
+    currentPattern = (
+        (currentPattern + 1) % (sizeof(patterns) / sizeof(patterns[0])));
 }
 
 void setup() {
-    FastLED.addLeds<DOTSTAR, DATA_PIN, CLOCK_PIN>(leds, NUM_LEDS);
+    Serial.begin(9600);
+    FastLED.addLeds<DOTSTAR, DATA_PIN, CLOCK_PIN>(
+        leds, NUM_LEDS).setCorrection(TypicalSMD5050);
+    FastLED.setTemperature(CarbonArc);
     FastLED.setBrightness(DEFAULT_BRIGHTNESS);
 }
 
 void loop() {
-    twinkleLoop(8);
-    pingPongLoop(6);
-    movingLoop(20);
-    panningLoop(6);
-    blinkingRedLightsLoop(4);
+    /* turnOffLights(); */
+    patterns[currentPattern]();
+    FastLED.delay(1000 / FPS);
+    EVERY_N_SECONDS(5) { nextPattern(); }
 }
