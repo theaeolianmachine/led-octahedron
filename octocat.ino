@@ -1,6 +1,7 @@
 #include <FastLED.h>
 
-#define BUTTON_PIN 2
+#define BLUE_BUTTON_PIN 3
+#define BPM 120
 #define CLOCK_PIN 13
 #define DATA_PIN 12
 #define DEFAULT_BRIGHTNESS 191
@@ -14,10 +15,13 @@
 #define MIN_SAT 191
 #define NUM_HUE_DISTANCES 6
 #define NUM_LEDS 180
+#define RED_BUTTON_PIN 2
 #define SPEED 10
+
 
 CRGB leds[NUM_LEDS];
 CHSV hsvs[NUM_LEDS];
+
 
 const uint16_t LEFT_CENTER = (
     LED_GROUP_SIZE % 2 == 0 ? (LED_GROUP_SIZE / 2) - 1 : LED_GROUP_SIZE / 2);
@@ -25,6 +29,7 @@ const uint16_t RIGHT_CENTER = LED_GROUP_SIZE / 2;
 const uint16_t DIST_CENTER = (
     LED_GROUP_SIZE % 2 == 0 ? LED_GROUP_SIZE / 2 : (LED_GROUP_SIZE / 2) + 1);
 const uint8_t HUE_DISTANCES[NUM_HUE_DISTANCES] = {0, 127, 42, 170, 234, 191};
+
 
 const CHSVPalette16 OctocatColorsPalette_p(
     CHSV(0, DEFAULT_SAT, MAX_BRIGHTNESS),
@@ -45,22 +50,26 @@ const CHSVPalette16 OctocatColorsPalette_p(
     CHSV(42, DEFAULT_SAT, MAX_BRIGHTNESS)
 );
 
+
 CRGBPalette16 palettes[] = {
     OctocatColorsPalette_p, LavaColors_p, PartyColors_p, OceanColors_p
 };
 
-boolean flashRed = false;
-uint8_t buttonState;
+
+boolean beatMode = false;
+boolean flashingMode = false;
 uint8_t currentPattern = 0;
 uint8_t currentPalette = 0;
-uint8_t lastButtonState = LOW;
 uint8_t rainbowHue = 0;
-uint64_t debounceDelay = 50;
-uint64_t lastDebounceTime;
+uint64_t debounceDelay = 200;
+uint64_t lastFlashDebounceTime = 0;
+uint64_t lastBeatDebounceTime = 0;
+
 
 uint8_t calcHueForGroup(uint8_t baseHue, uint16_t group) {
     return baseHue + HUE_DISTANCES[group % NUM_HUE_DISTANCES];
 }
+
 
 void turnOffLights() {
     for (uint16_t i = 0; i < NUM_LEDS; ++i) {
@@ -69,6 +78,7 @@ void turnOffLights() {
     hsv2rgb_rainbow(hsvs, leds, NUM_LEDS);
     FastLED.show();
 }
+
 
 void setupHuesForGroups() {
     uint8_t hue;
@@ -81,6 +91,7 @@ void setupHuesForGroups() {
         }
     }
 }
+
 
 // TODO: Refactor with beatsin8?
 void twinkleLoop() {
@@ -104,6 +115,7 @@ void twinkleLoop() {
     }
 }
 
+
 void movingPattern() {
     uint8_t hue;
     setupHuesForGroups();
@@ -123,6 +135,7 @@ void movingPattern() {
         delay(1000 / SPEED);
     }
 }
+
 
 void panningAnimation(uint16_t left, uint16_t right, uint16_t len, boolean out) {
     for (uint16_t i = 0; i < len; ++i) {
@@ -161,12 +174,14 @@ void panningAnimation(uint16_t left, uint16_t right, uint16_t len, boolean out) 
     }
 }
 
+
 void panningLoop() {
     setupHuesForGroups();
     panningAnimation(LEFT_CENTER, RIGHT_CENTER, DIST_CENTER, true);
     panningAnimation(0, LED_GROUP_SIZE - 1, DIST_CENTER, false);
     panningAnimation(LEFT_CENTER, RIGHT_CENTER, DIST_CENTER, true);
 }
+
 
 void pingPongSide(uint16_t lower, uint16_t upper, int16_t inc) {
     uint8_t dir = lower + inc;
@@ -203,6 +218,7 @@ void pingPongSide(uint16_t lower, uint16_t upper, int16_t inc) {
     }
 }
 
+
 void pingPongAnimation(uint16_t left, uint16_t right) {
     for (uint16_t j = 0; j < NUM_LEDS; j += LED_GROUP_SIZE) {
         CHSV curHsv = CHSV(
@@ -219,10 +235,12 @@ void pingPongAnimation(uint16_t left, uint16_t right) {
     pingPongSide(left, 0, -1);
 }
 
+
 void pingPongLoop() {
     setupHuesForGroups();
     pingPongAnimation(LEFT_CENTER, RIGHT_CENTER);
 }
+
 
 void blinkRedLights() {
     for (uint8_t i = 0; i < 4; ++i) {
@@ -240,13 +258,16 @@ void blinkRedLights() {
     }
 }
 
+
 void randomSparklesGroupPattern() {
     randomSparklesPattern(true);
 }
 
+
 void randomSparklesRainbowPattern() {
     randomSparklesPattern(false);
 }
+
 
 void randomSparklesPattern(boolean groupHues) {
     uint16_t pos = random16(NUM_LEDS);
@@ -326,26 +347,39 @@ void nextPattern() {
 }
 
 
-void changeMode() {
-    uint8_t buttonReading = digitalRead(BUTTON_PIN);
-    if (buttonReading != lastButtonState) {
-        lastDebounceTime = millis();
+void toggleFlashingMode() {
+    uint64_t interruptTime = millis();
+    if (interruptTime - lastFlashDebounceTime > debounceDelay) {
+        Serial.println("Toggling Flashing Mode");
+        flashingMode = !flashingMode;
     }
-    if ((millis() - lastDebounceTime) > debounceDelay) {
-        if (buttonReading != buttonState) {
-            buttonState = buttonReading;
-            if (buttonState == HIGH) {
-                flashRed = !flashRed;
-            }
-        }
+    if (flashingMode) {
+        beatMode = false;
+        FastLED.setBrightness(DEFAULT_BRIGHTNESS);
     }
-    flashRed = !flashRed;
+    lastFlashDebounceTime = interruptTime;
+}
+
+void toggleBeatMode() {
+    uint64_t interruptTime = millis();
+    if (interruptTime - lastBeatDebounceTime > debounceDelay) {
+        Serial.println("Toggling Beat Mode");
+        beatMode = !beatMode;
+    }
+    if (!beatMode) {
+        FastLED.setBrightness(DEFAULT_BRIGHTNESS);
+    }
+    lastBeatDebounceTime = interruptTime;
 }
 
 void setup() {
     Serial.begin(9600);
-    pinMode(BUTTON_PIN, INPUT);
-    attachInterrupt(digitalPinToInterrupt(BUTTON_PIN), changeMode, FALLING);
+    pinMode(RED_BUTTON_PIN, INPUT);
+    pinMode(BLUE_BUTTON_PIN, INPUT);
+    attachInterrupt(
+        digitalPinToInterrupt(RED_BUTTON_PIN), toggleFlashingMode, RISING);
+    attachInterrupt(
+        digitalPinToInterrupt(BLUE_BUTTON_PIN), toggleBeatMode, CHANGE);
     FastLED.addLeds<DOTSTAR, DATA_PIN, CLOCK_PIN>(
         leds, NUM_LEDS).setCorrection(TypicalSMD5050);
     FastLED.setTemperature(CarbonArc);
@@ -353,7 +387,10 @@ void setup() {
 }
 
 void loop() {
-    if (flashRed) {
+    if (beatMode) {
+        FastLED.setBrightness(beatsin8(BPM, 0, 255));
+    }
+    if (flashingMode) {
         blinkRedLights();
     } else {
         patterns[currentPattern]();
