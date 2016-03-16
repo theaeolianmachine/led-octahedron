@@ -5,7 +5,7 @@
 #define DATA_PIN 12
 #define DEFAULT_BRIGHTNESS 191
 #define DEFAULT_HUE 5
-#define DEFAULT_SAT 191
+#define DEFAULT_SAT 223
 #define FPS 120
 #define LED_GROUP_SIZE (NUM_LEDS / 12)
 #define MAX_BRIGHTNESS 223
@@ -26,9 +26,33 @@ const uint16_t DIST_CENTER = (
     LED_GROUP_SIZE % 2 == 0 ? LED_GROUP_SIZE / 2 : (LED_GROUP_SIZE / 2) + 1);
 const uint8_t HUE_DISTANCES[NUM_HUE_DISTANCES] = {0, 127, 42, 170, 234, 191};
 
+const CHSVPalette16 OctocatColorsPalette_p(
+    CHSV(0, DEFAULT_SAT, MAX_BRIGHTNESS),
+    CHSV(127, DEFAULT_SAT, MAX_BRIGHTNESS),
+    CHSV(42, DEFAULT_SAT, MAX_BRIGHTNESS),
+    CHSV(170, DEFAULT_SAT, MAX_BRIGHTNESS),
+    CHSV(234, DEFAULT_SAT, MAX_BRIGHTNESS),
+    CHSV(191, DEFAULT_SAT, MAX_BRIGHTNESS),
+    CHSV(64, DEFAULT_SAT, MAX_BRIGHTNESS),
+    CHSV(191, DEFAULT_SAT, MAX_BRIGHTNESS),
+    CHSV(106, DEFAULT_SAT, MAX_BRIGHTNESS),
+    CHSV(234, DEFAULT_SAT, MAX_BRIGHTNESS),
+    CHSV(42, DEFAULT_SAT, MAX_BRIGHTNESS),
+    CHSV(255, DEFAULT_SAT, MAX_BRIGHTNESS),
+    CHSV(128, DEFAULT_SAT, MAX_BRIGHTNESS),
+    CHSV(255, DEFAULT_SAT, MAX_BRIGHTNESS),
+    CHSV(170, DEFAULT_SAT, MAX_BRIGHTNESS),
+    CHSV(42, DEFAULT_SAT, MAX_BRIGHTNESS)
+);
+
+CRGBPalette16 palettes[] = {
+    OctocatColorsPalette_p, LavaColors_p, PartyColors_p, OceanColors_p
+};
+
 boolean flashRed = false;
 uint8_t buttonState;
 uint8_t currentPattern = 0;
+uint8_t currentPalette = 0;
 uint8_t lastButtonState = LOW;
 uint8_t rainbowHue = 0;
 uint64_t debounceDelay = 50;
@@ -51,13 +75,14 @@ void setupHuesForGroups() {
     uint16_t groupNum;
     for (uint16_t i = 0; i < NUM_LEDS; i += LED_GROUP_SIZE) {
         groupNum = i / LED_GROUP_SIZE;
-        hue = calcHueForGroup(DEFAULT_HUE + (63 * groupNum), groupNum);
+        hue = calcHueForGroup(DEFAULT_HUE + (64 * groupNum), groupNum);
         for (uint16_t j = i; j < i + LED_GROUP_SIZE; ++j) {
             hsvs[j] = CHSV(hue, DEFAULT_SAT, 0);
         }
     }
 }
 
+// TODO: Refactor with beatsin8?
 void twinkleLoop() {
     uint8_t wave, brightUp, brightDown;
     setupHuesForGroups();
@@ -230,24 +255,76 @@ void randomSparklesPattern(boolean groupHues) {
     fadeToBlackBy(leds, NUM_LEDS, 10);
     if (groupHues) {
         hue = calcHueForGroup(
-            DEFAULT_HUE + (63 * (pos / LED_GROUP_SIZE)), pos / LED_GROUP_SIZE);
+            DEFAULT_HUE + (64 * (pos / LED_GROUP_SIZE)), pos / LED_GROUP_SIZE);
     } else {
         hue = rainbowHue;
     }
     leds[pos] += CHSV(hue + random8(64), DEFAULT_SAT, MAX_BRIGHTNESS);
 }
 
+
+void glitterPattern() {
+    uint8_t bpm = 60;
+    uint8_t beat = beatsin8(bpm, 159, MAX_BRIGHTNESS);
+    CHSV hsv = CHSV(rainbowHue, DEFAULT_SAT, beat);
+    for (uint16_t i = 0; i < NUM_LEDS; ++i) {
+        hsvs[i] = hsv;
+        hsv.hue += 7;
+    }
+    hsv2rgb_rainbow(hsvs, leds, NUM_LEDS);
+    if(random8() < 64) {
+        leds[random16(NUM_LEDS)] += CRGB::White;
+    }
+}
+
+
+void pulsingPattern() {
+    uint8_t bpm = 60;
+    uint8_t beat = beatsin8(bpm, 64, 255);
+    uint8_t hue;
+    CRGBPalette16 palette = palettes[currentPalette];
+
+    for(uint16_t i = 0; i < NUM_LEDS; i++) {
+        uint8_t brightnessFactor = lerp8by8(8, 20, sin8(rainbowHue));
+        uint8_t brightness = beat - (rainbowHue + (i * brightnessFactor));
+        leds[i] = ColorFromPalette(
+            palette, rainbowHue + (i * 2), brightness);
+    }
+}
+
+
+void beatSyncMultiplesPattern() {
+    fadeToBlackBy(leds, NUM_LEDS, 20);
+    CRGBPalette16 palette = palettes[currentPalette];
+    for(uint16_t i = 0; i < 8; i++) {
+        uint16_t index = beatsin16(i * 2, 0, NUM_LEDS);
+        leds[index] |= ColorFromPalette(palette, i * 32, MAX_BRIGHTNESS);
+    }
+}
+
+
 /* Main Logic */
 
 typedef void (*PatternArray[])();
 PatternArray patterns = {
-    randomSparklesGroupPattern, randomSparklesRainbowPattern, movingPattern
+    randomSparklesGroupPattern,
+    randomSparklesRainbowPattern,
+    pulsingPattern,
+    glitterPattern,
+    beatSyncMultiplesPattern
 };
+
+void nextPalette() {
+    currentPalette = (
+        (currentPalette + 1) % (sizeof(palettes) / sizeof(palettes[0])));
+}
+
 
 void nextPattern() {
     currentPattern = (
         (currentPattern + 1) % (sizeof(patterns) / sizeof(patterns[0])));
 }
+
 
 void changeMode() {
     uint8_t buttonReading = digitalRead(BUTTON_PIN);
@@ -282,6 +359,7 @@ void loop() {
         patterns[currentPattern]();
     }
     FastLED.delay(1000 / FPS);
-    EVERY_N_SECONDS(5) { nextPattern(); }
+    EVERY_N_SECONDS(12) { nextPattern(); }
+    EVERY_N_SECONDS(3) { nextPalette(); }
     EVERY_N_MILLISECONDS(20) { ++rainbowHue; }
 }
