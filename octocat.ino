@@ -51,7 +51,7 @@ const CHSVPalette16 OctocatColorsPalette_p(
 );
 
 
-CRGBPalette16 palettes[] = {
+CHSVPalette16 palettes[] = {
     OctocatColorsPalette_p, LavaColors_p, PartyColors_p, OceanColors_p
 };
 
@@ -64,6 +64,16 @@ uint8_t rainbowHue = 0;
 uint64_t debounceDelay = 200;
 uint64_t lastFlashDebounceTime = 0;
 uint64_t lastBeatDebounceTime = 0;
+
+
+uint8_t getGradientGroupHue(uint8_t led) {
+    return (led  * 16) / LED_GROUP_SIZE;
+}
+
+
+uint8_t getGroupHue(uint8_t led) {
+    return (led / LED_GROUP_SIZE) * 16;
+}
 
 
 uint8_t calcHueForGroup(uint8_t baseHue, uint16_t group) {
@@ -93,25 +103,20 @@ void setupHuesForGroups() {
 }
 
 
-// TODO: Refactor with beatsin8?
-void twinkleLoop() {
-    uint8_t wave, brightUp, brightDown;
-    setupHuesForGroups();
-    for (uint16_t fade = 0; fade <= 255; ++fade) {
-        wave = sin8(fade);
-        brightUp = lerp8by8(MIN_BRIGHTNESS, MAX_BRIGHTNESS, wave);
-        brightDown = lerp8by8(MAX_BRIGHTNESS, MIN_BRIGHTNESS, wave);
-        for (uint16_t dot = 0; dot < NUM_LEDS; ++dot) {
-            if (dot % 2 == 0) {
-                hsvs[dot].val = brightDown;
-            } else {
-                hsvs[dot].val = brightUp;
-            }
-            hsvs[dot].sat = lerp8by8(MIN_SAT, MAX_SAT, wave);
+void twinklePattern() {
+    uint8_t bpm = 30;
+    uint8_t beat = beatsin8(bpm, 0, 255);
+    CHSVPalette16 palette = OctocatColorsPalette_p;
+    for (uint16_t i = 0; i < NUM_LEDS; ++i) {
+        CHSV hsv = ColorFromPalette(
+            palette, getGroupHue(i), DEFAULT_BRIGHTNESS);
+        hsv.sat = lerp8by8(MIN_SAT, MAX_SAT, beat);
+        if (i % 2 == 0) {
+            hsv.val = lerp8by8(MAX_BRIGHTNESS, MIN_BRIGHTNESS, beat);
+        } else {
+            hsv.val = lerp8by8(MIN_BRIGHTNESS, MAX_BRIGHTNESS, beat);
         }
-        hsv2rgb_rainbow(hsvs, leds, NUM_LEDS);
-        FastLED.show();
-        delay(10 / SPEED);
+        leds[i] = hsv;
     }
 }
 
@@ -395,6 +400,7 @@ void loop() {
     } else {
         patterns[currentPattern]();
     }
+    FastLED.show();
     FastLED.delay(1000 / FPS);
     EVERY_N_SECONDS(12) { nextPattern(); }
     EVERY_N_SECONDS(3) { nextPalette(); }
