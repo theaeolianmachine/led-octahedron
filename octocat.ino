@@ -50,8 +50,11 @@ const CHSVPalette16 OctocatColorsPalette_p(
     CHSV(42, DEFAULT_SAT, MAX_BRIGHTNESS)
 );
 
+CHSVPalette16 hsvPalettes[] = {
+    OctocatColorsPalette_p
+};
 
-CHSVPalette16 palettes[] = {
+CRGBPalette16 rgbPalettes[] = {
     OctocatColorsPalette_p, LavaColors_p, PartyColors_p, OceanColors_p
 };
 
@@ -59,20 +62,21 @@ CHSVPalette16 palettes[] = {
 boolean beatMode = false;
 boolean flashingMode = false;
 uint8_t currentPattern = 0;
-uint8_t currentPalette = 0;
+uint8_t currentHSVPalette = 0;
+uint8_t currentRGBPalette = 0;
 uint8_t rainbowHue = 0;
 uint64_t debounceDelay = 200;
 uint64_t lastFlashDebounceTime = 0;
 uint64_t lastBeatDebounceTime = 0;
 
 
-uint8_t getGradientGroupHue(uint8_t led) {
-    return (led  * 16) / LED_GROUP_SIZE;
+uint8_t getGradientHue(uint8_t led) {
+    return (led * 255) / (NUM_LEDS - 1);
 }
 
 
 uint8_t getGroupHue(uint8_t led) {
-    return (led / LED_GROUP_SIZE) * 16;
+    return ((led / LED_GROUP_SIZE) * 255) / 11;
 }
 
 
@@ -121,24 +125,36 @@ void twinklePattern() {
 }
 
 
-void movingPattern() {
-    uint8_t hue;
-    setupHuesForGroups();
-    for (uint16_t i = 0; i < LED_GROUP_SIZE; ++i) {
-        for (uint16_t j = 0; j < NUM_LEDS; j += LED_GROUP_SIZE) {
-            hsvs[j + i].hue += 16;
-            hsvs[j + i].sat = MAX_SAT;
-            hsvs[j + i].val = DEFAULT_BRIGHTNESS;
-            for (uint16_t k = j; k < j + i; ++k) {
-                hsvs[k].hue += 16;
-                hsvs[k].sat = lerp8by8(0, hsvs[k].sat, 224);
-                hsvs[k].val = lerp8by8(0, hsvs[k].val, 192);
-            }
-        }
-        hsv2rgb_rainbow(hsvs, leds, NUM_LEDS);
-        FastLED.show();
-        delay(1000 / SPEED);
+void cometPatternRGB() {
+    static uint8_t offset = 0;
+
+    uint8_t groupOffset = offset % LED_GROUP_SIZE;
+    CRGBPalette16 palette = rgbPalettes[currentRGBPalette];
+
+    fadeToBlackBy(leds, NUM_LEDS, 127);
+    for (uint16_t i = groupOffset; i < NUM_LEDS; i += LED_GROUP_SIZE) {
+        leds[i] = ColorFromPalette(palette, getGradientHue(i), MAX_BRIGHTNESS);
     }
+    ++offset;
+    delay(50);
+}
+
+
+void cometPatternHSV() {
+    static uint8_t offset = 0;
+
+    uint8_t groupOffset = offset % LED_GROUP_SIZE;
+    CHSVPalette16 palette = hsvPalettes[currentHSVPalette];
+
+    fadeToBlackBy(leds, NUM_LEDS, 127);
+    for (uint16_t i = groupOffset; i < NUM_LEDS; i += LED_GROUP_SIZE) {
+        CHSV hsv = ColorFromPalette(
+            palette, getGradientHue(i), MAX_BRIGHTNESS);
+        hsv.hue += 16 * groupOffset;
+        leds[i] = hsv;
+    }
+    ++offset;
+    delay(50);
 }
 
 
@@ -308,7 +324,7 @@ void pulsingPattern() {
     uint8_t bpm = 60;
     uint8_t beat = beatsin8(bpm, 64, 255);
     uint8_t hue;
-    CRGBPalette16 palette = palettes[currentPalette];
+    CRGBPalette16 palette = rgbPalettes[currentRGBPalette];
 
     for(uint16_t i = 0; i < NUM_LEDS; i++) {
         uint8_t brightnessFactor = lerp8by8(8, 20, sin8(rainbowHue));
@@ -321,7 +337,7 @@ void pulsingPattern() {
 
 void beatSyncMultiplesPattern() {
     fadeToBlackBy(leds, NUM_LEDS, 20);
-    CRGBPalette16 palette = palettes[currentPalette];
+    CRGBPalette16 palette = rgbPalettes[currentRGBPalette];
     for(uint16_t i = 0; i < 8; i++) {
         uint16_t index = beatsin16(i * 2, 0, NUM_LEDS);
         leds[index] |= ColorFromPalette(palette, i * 32, MAX_BRIGHTNESS);
@@ -333,16 +349,24 @@ void beatSyncMultiplesPattern() {
 
 typedef void (*PatternArray[])();
 PatternArray patterns = {
-    randomSparklesGroupPattern,
-    randomSparklesRainbowPattern,
-    pulsingPattern,
-    glitterPattern,
-    beatSyncMultiplesPattern
+    panningLoop
+    /* cometPatternRGB, */
+    /* cometPatternHSV, */
+    /* twinklePattern, */
+    /* randomSparklesGroupPattern, */
+    /* randomSparklesRainbowPattern, */
+    /* pulsingPattern, */
+    /* glitterPattern, */
+    /* beatSyncMultiplesPattern */
 };
 
 void nextPalette() {
-    currentPalette = (
-        (currentPalette + 1) % (sizeof(palettes) / sizeof(palettes[0])));
+    currentRGBPalette = (
+        (currentRGBPalette + 1) %
+        (sizeof(rgbPalettes) / sizeof(rgbPalettes[0])));
+    currentHSVPalette = (
+        (currentHSVPalette + 1) %
+        (sizeof(hsvPalettes) / sizeof(hsvPalettes[0])));
 }
 
 
@@ -384,7 +408,7 @@ void setup() {
     attachInterrupt(
         digitalPinToInterrupt(RED_BUTTON_PIN), toggleFlashingMode, RISING);
     attachInterrupt(
-        digitalPinToInterrupt(BLUE_BUTTON_PIN), toggleBeatMode, CHANGE);
+        digitalPinToInterrupt(BLUE_BUTTON_PIN), toggleBeatMode, RISING);
     FastLED.addLeds<DOTSTAR, DATA_PIN, CLOCK_PIN>(
         leds, NUM_LEDS).setCorrection(TypicalSMD5050);
     FastLED.setTemperature(CarbonArc);
