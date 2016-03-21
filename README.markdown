@@ -40,3 +40,9 @@ project.
 [fastled_site]: http://fastled.io/
 [octacat]: http://www.catchitecture.com/#!product-page/cba4/9d8d564f-df7c-08bb-7562-52b1b8a3086f
 [uno]: https://www.arduino.cc/en/Main/ArduinoBoardUno
+
+## Great Job!
+
+Don't let D12 shaped boxes go to waste! Make them rave-D12 boxes!\*
+
+\* Cat not included, but highly recommended.
