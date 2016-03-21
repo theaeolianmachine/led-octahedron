@@ -531,7 +531,7 @@ void setup() {
 void loop() {
     // If beat mode is on, do da beats.
     if (beatMode) {
-        FastLED.setBrightness(beatsin8(BPM, MIN_BRIGHTNESS, MAX_BRIGHTNESS));
+        FastLED.setBrightness(beatsin8(BPM, 0, MAX_BRIGHTNESS));
     }
     // Flash red lights or cycle through the patterns!
     if (flashingMode) {
