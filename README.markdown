@@ -43,6 +43,6 @@ project.
 
 ## Great Job!
 
-Don't let D12 shaped boxes go to waste! Make them rave-D12 boxes!\*
+Don't let d12 shaped boxes go to waste! Make them rave-d12 boxes!\*
 
 \* Cat not included, but highly recommended.
