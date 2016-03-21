@@ -23,6 +23,8 @@ CRGB leds[NUM_LEDS];
 CHSV hsvs[NUM_LEDS];
 
 
+const boolean IS_GROUP_SIZE_EVEN = LED_GROUP_SIZE % 2 == 0;
+const uint16_t GROUP_CENTER = LED_GROUP_SIZE / 2;
 const uint16_t LEFT_CENTER = (
     LED_GROUP_SIZE % 2 == 0 ? (LED_GROUP_SIZE / 2) - 1 : LED_GROUP_SIZE / 2);
 const uint16_t RIGHT_CENTER = LED_GROUP_SIZE / 2;
@@ -87,9 +89,8 @@ uint8_t calcHueForGroup(uint8_t baseHue, uint16_t group) {
 
 void turnOffLights() {
     for (uint16_t i = 0; i < NUM_LEDS; ++i) {
-        hsvs[i].val = 0;
+        leds[i] = CRGB::Black;
     }
-    hsv2rgb_rainbow(hsvs, leds, NUM_LEDS);
     FastLED.show();
 }
 
@@ -125,84 +126,84 @@ void twinklePattern() {
 }
 
 
-void cometPatternRGB() {
+void cometPattern(boolean hsvColors) {
     static uint8_t offset = 0;
 
-    uint8_t groupOffset = offset % LED_GROUP_SIZE;
-    CRGBPalette16 palette = rgbPalettes[currentRGBPalette];
-
     fadeToBlackBy(leds, NUM_LEDS, 127);
-    for (uint16_t i = groupOffset; i < NUM_LEDS; i += LED_GROUP_SIZE) {
-        leds[i] = ColorFromPalette(palette, getGradientHue(i), MAX_BRIGHTNESS);
+    for (uint16_t i = offset; i < NUM_LEDS; i += LED_GROUP_SIZE) {
+        if (hsvColors) {
+            CHSV hsv = ColorFromPalette(
+                hsvPalettes[currentHSVPalette],
+                getGradientHue(i), MAX_BRIGHTNESS);
+            hsv.hue += 16 * offset;
+            leds[i] = hsv;
+        } else {
+            leds[i] = ColorFromPalette(
+                rgbPalettes[currentRGBPalette], getGradientHue(i),
+                MAX_BRIGHTNESS);
+        }
     }
-    ++offset;
+    offset = (++offset) % LED_GROUP_SIZE;
     delay(50);
+}
+
+
+void cometPatternRGB() {
+    cometPattern(false);
 }
 
 
 void cometPatternHSV() {
-    static uint8_t offset = 0;
+    cometPattern(true);
+}
 
-    uint8_t groupOffset = offset % LED_GROUP_SIZE;
-    CHSVPalette16 palette = hsvPalettes[currentHSVPalette];
 
-    fadeToBlackBy(leds, NUM_LEDS, 127);
-    for (uint16_t i = groupOffset; i < NUM_LEDS; i += LED_GROUP_SIZE) {
-        CHSV hsv = ColorFromPalette(
-            palette, getGradientHue(i), MAX_BRIGHTNESS);
-        hsv.hue += 16 * groupOffset;
-        leds[i] = hsv;
+void convergePattern(boolean hsvColors) {
+    static uint8_t dist = 0;
+    static boolean goingOut = true;
+
+    uint16_t maxDist = GROUP_CENTER;
+    uint16_t start = GROUP_CENTER - dist;
+    if (IS_GROUP_SIZE_EVEN) {
+        --start;
+        --maxDist;
     }
-    ++offset;
-    delay(50);
-}
-
-
-void panningAnimation(uint16_t left, uint16_t right, uint16_t len, boolean out) {
-    for (uint16_t i = 0; i < len; ++i) {
-        if (i != 0) {
-            if (out) {
-                --left, ++right;
+    for (uint16_t i = 0; i < NUM_LEDS; i += LED_GROUP_SIZE) {
+        for (uint16_t j = i + start; j <= i + GROUP_CENTER + dist; ++j) {
+            if (goingOut) {
+                if (hsvColors) {
+                    CHSV hsv = ColorFromPalette(
+                        hsvPalettes[currentHSVPalette],
+                        getGradientHue(i), DEFAULT_BRIGHTNESS);
+                    hsv.sat = beatsin8(30, MIN_SAT, MAX_SAT);
+                    hsv.hue += 48 * dist;
+                    leds[j] = hsv;
+                } else {
+                    leds[j] = ColorFromPalette(
+                        rgbPalettes[currentRGBPalette], getGradientHue(j),
+                        DEFAULT_BRIGHTNESS);
+                }
             } else {
-                ++left, --right;
+                leds[j] = CRGB::Black;
             }
         }
-        if (i == len - 1 && !out) {
-            continue;
-        }
-        for (uint16_t j = 0; j < NUM_LEDS; j += LED_GROUP_SIZE) {
-            if (out) {
-                hsvs[j + left].sat = MAX_SAT;
-                hsvs[j + left].val = DEFAULT_BRIGHTNESS;
-                hsvs[j + right].sat = MAX_SAT;
-                hsvs[j + right].val = DEFAULT_BRIGHTNESS;
-            } else {
-                hsvs[j + left].val = 0;
-                hsvs[j + right].val = 0;
-            }
-        }
-        for (uint16_t j = 0; j < NUM_LEDS; ++j) {
-            hsvs[j].hue += 32;
-            if (i % 2 == 0) {
-                hsvs[j].sat -= 32;
-            } else {
-                hsvs[j].sat += 32;
-            }
-        }
-        hsv2rgb_rainbow(hsvs, leds, NUM_LEDS);
-        FastLED.show();
-        delay(2000 / SPEED);
     }
+
+    dist = (++dist) % (maxDist + 1);
+    if (dist == 0) {
+        goingOut = !goingOut;
+    }
+    delay(75);
 }
 
 
-void panningLoop() {
-    setupHuesForGroups();
-    panningAnimation(LEFT_CENTER, RIGHT_CENTER, DIST_CENTER, true);
-    panningAnimation(0, LED_GROUP_SIZE - 1, DIST_CENTER, false);
-    panningAnimation(LEFT_CENTER, RIGHT_CENTER, DIST_CENTER, true);
+void convergePatternRGB() {
+    convergePattern(false);
 }
 
+void convergePatternHSV() {
+    convergePattern(true);
+}
 
 void pingPongSide(uint16_t lower, uint16_t upper, int16_t inc) {
     uint8_t dir = lower + inc;
@@ -264,19 +265,17 @@ void pingPongLoop() {
 
 
 void blinkRedLights() {
-    for (uint8_t i = 0; i < 4; ++i) {
-        uint16_t dot = 0;
-        for (dot = 0; dot < NUM_LEDS; ++dot) {
-            leds[dot] = CRGB::Red;
-        }
-        FastLED.show();
-        delay(1000 / SPEED);
-        for (dot = 0; dot < NUM_LEDS; ++dot) {
-            leds[dot] = CRGB::Black;
-        }
-        FastLED.show();
-        delay(1000 / SPEED);
+    uint16_t i = 0;
+    for (i = 0; i < NUM_LEDS; ++i) {
+        leds[i] = CRGB::Maroon;
     }
+    FastLED.show();
+    delay(100);
+    for (i = 0; i < NUM_LEDS; ++i) {
+        leds[i] = CRGB::Black;
+    }
+    FastLED.show();
+    delay(100);
 }
 
 
@@ -296,8 +295,7 @@ void randomSparklesPattern(boolean groupHues) {
 
     fadeToBlackBy(leds, NUM_LEDS, 10);
     if (groupHues) {
-        hue = calcHueForGroup(
-            DEFAULT_HUE + (64 * (pos / LED_GROUP_SIZE)), pos / LED_GROUP_SIZE);
+        hue = getGroupHue(pos);
     } else {
         hue = rainbowHue;
     }
@@ -349,7 +347,9 @@ void beatSyncMultiplesPattern() {
 
 typedef void (*PatternArray[])();
 PatternArray patterns = {
-    panningLoop
+    pingPongLoop,
+    /* convergePatternRGB */
+    /* convergePatternHSV, */
     /* cometPatternRGB, */
     /* cometPatternHSV, */
     /* twinklePattern, */
