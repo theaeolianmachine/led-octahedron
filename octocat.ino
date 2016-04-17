@@ -11,6 +11,9 @@
 #define CLOCK_PIN 4  // Pin for LED Clock (Dotstar)
 #define DATA_PIN 5   // Pin For LED Data (Dotstar)
 
+#define PATTERN_SWITCH_LED_PIN 12      // Onboard LED for Beat Mode
+#define MODE_SWITCH_LED_PIN 13  // Onboard LED for Flashing Mode
+
 // ===============
 // HSV Definitions
 // ===============
@@ -41,6 +44,8 @@
 
 #define BPM 120             // Beat Synced BPM
 #define DEBOUNCE_DELAY 200  // Amount of time to wait for debouncing checks
+#define LED_OFF_DELAY 750   // Amount of time to wait before turning off
+                            // onboard LED's.
 #define FPS 120             // Frames Per Second
 
 // Amount of time to show each pattern
@@ -113,6 +118,8 @@ uint8_t currentRGBPalette = 0;  // Index of currently selected RGB Palette
 uint8_t rainbowHue = 0;         // Global value for cycling through hues
 
 uint64_t lastDebounceTime = 0;      // Time used for debouncing mode button
+uint64_t lastPatternSwitchTime = 0;       // Time used for Pattern Switching LED
+uint64_t lastModeSwitchTime = 0;    // Time used for Mode Switching LED
 
 
 // =================
@@ -182,6 +189,8 @@ void toggleMode() {
                 currentMode = NORMAL_MODE;
                 break;
         }
+        lastModeSwitchTime = millis();
+        digitalWrite(MODE_SWITCH_LED_PIN, HIGH);
     }
     if (currentMode != BEAT_MODE) {
         FastLED.setBrightness(DEFAULT_BRIGHTNESS);
@@ -493,6 +502,43 @@ void nextPalette() {
  */
 void nextPattern() {
     currentPattern = (currentPattern + 1) % patternsLength;
+    lastPatternSwitchTime = millis();
+    digitalWrite(PATTERN_SWITCH_LED_PIN, HIGH);
+}
+
+
+// ======================
+// LED Response Functions
+// ======================
+
+
+/*
+ * Turns off a given LED if it's on and it's been at least LED_OFF_DELAY
+ * millis since the light turned on.
+ */
+void turnOffLED(
+        uint8_t pin, uint8_t currentValue, uint64_t currentTime,
+        uint64_t lastSwitchTime) {
+    if (currentValue == HIGH && currentTime - lastSwitchTime > LED_OFF_DELAY) {
+        digitalWrite(pin, LOW);
+    }
+}
+
+
+/*
+ * Turns off LED's if LED_OFF_DELAY millis have passed.
+ *
+ * LED's are set to turn on when the pattern or mode change - this ensures that
+ * the LED's are ultimately turned off.
+ */
+void checkAndTurnOffLEDS(
+        uint64_t currentTime, uint8_t patternValue, uint8_t modeValue) {
+    turnOffLED(
+        PATTERN_SWITCH_LED_PIN, patternValue,
+        currentTime, lastPatternSwitchTime);
+    turnOffLED(
+        MODE_SWITCH_LED_PIN, modeValue,
+        currentTime, lastModeSwitchTime);
 }
 
 
@@ -504,6 +550,10 @@ void nextPattern() {
 void setup() {
     // Sets pin for mode push button
     pinMode(MODE_BUTTON_PIN, INPUT);
+
+    // Sets onboard LED pins to output on events (new pattern or mode)
+    pinMode(PATTERN_SWITCH_LED_PIN, OUTPUT);
+    pinMode(MODE_SWITCH_LED_PIN, OUTPUT);
 
     // Attaches interrupts for changing the current animation mode
     attachInterrupt(
@@ -522,6 +572,11 @@ void setup() {
 
 
 void loop() {
+    // Check and potentially turn offf LED's
+    checkAndTurnOffLEDS(
+        millis(), digitalRead(PATTERN_SWITCH_LED_PIN),
+        digitalRead(MODE_SWITCH_LED_PIN));
+
     // Do an action based on the current mode
     switch (currentMode) {
         case BEAT_MODE:
