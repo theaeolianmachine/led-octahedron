@@ -5,12 +5,11 @@
 // =======================
 
 // Button Numbers (Beat Mode & Flashing Red Lights Mode)
-#define BEAT_BUTTON_PIN 3      // Pin For Toggling Beat Mode
-#define FLASHING_BUTTON_PIN 2  // Pin For Toggling Flashing Red Lights Mode
+#define MODE_BUTTON_PIN 2  // Pin For Toggling Modes
 
 // Dotstar LED Pins
-#define CLOCK_PIN 13  // Pin for LED Clock (Dotstar)
-#define DATA_PIN 12   // Pin For LED Data (Dotstar)
+#define CLOCK_PIN 4  // Pin for LED Clock (Dotstar)
+#define DATA_PIN 5   // Pin For LED Data (Dotstar)
 
 // ===============
 // HSV Definitions
@@ -94,6 +93,10 @@ CRGBPalette16 rgbPalettes[] = {
     OctocatColorsPalette_p, LavaColors_p, PartyColors_p, OceanColors_p
 };
 
+// Represents the current animation mode
+typedef enum {NORMAL_MODE, BEAT_MODE, FLASHING_RED_MODE} AnimationMode;
+AnimationMode currentMode = NORMAL_MODE;
+
 
 // Length of hsvPalettes[]
 const uint16_t hsvPalettesLength = (
@@ -104,16 +107,12 @@ const uint16_t rgbPalettesLength = (
     sizeof(rgbPalettes) / sizeof(rgbPalettes[0]));
 
 
-boolean beatMode = false;     // Toggle for Beat Mode
-boolean flashingMode = false; // Toggle for Flashing Red Lights Mode
-
 uint8_t currentPattern = 0;     // Index of currently selected pattern
 uint8_t currentHSVPalette = 0;  // Index of currently selected HSV Palette
 uint8_t currentRGBPalette = 0;  // Index of currently selected RGB Palette
 uint8_t rainbowHue = 0;         // Global value for cycling through hues
 
-uint64_t lastFlashDebounceTime = 0; // Time since debounced flash mode toggle
-uint64_t lastBeatDebounceTime = 0;  // Time since debounced beat mode toggle
+uint64_t lastDebounceTime = 0;      // Time used for debouncing mode button
 
 
 // =================
@@ -158,41 +157,36 @@ uint8_t getGroupHue(uint16_t led) {
 
 
 /*
- * Debounces and toggles "beat mode" using a button. Beat Mode essential sets
- * FastLED to turn its global brightness to be beat synced to a beat synced sin
- * wave.
+ * Debounces and toggles modes using a button.
+ *
+ * Normal mode simply shows the standard animations.
+ *
+ * Beat Mode sets FastLED to turn its global brightness to be beat
+ * synced to a beat synced sin wave.
+ *
+ * Flashing Red Mode does exactly what it sounds like, and is likely to get the
+ * attention of you, your cat, and just about everyone.
  */
-void toggleBeatMode() {
+void toggleMode() {
     uint64_t interruptTime = millis();
-    if (interruptTime - lastBeatDebounceTime > DEBOUNCE_DELAY) {
-        // No beats when we're flashing
-        if (!flashingMode) {
-            beatMode = !beatMode;
+    if (interruptTime - lastDebounceTime > DEBOUNCE_DELAY) {
+        switch(currentMode) {
+            case NORMAL_MODE:
+                currentMode = BEAT_MODE;
+                break;
+            case BEAT_MODE:
+                currentMode = FLASHING_RED_MODE;
+                break;
+            case FLASHING_RED_MODE:
+            default:
+                currentMode = NORMAL_MODE;
+                break;
         }
     }
-    if (!beatMode) {
+    if (currentMode != BEAT_MODE) {
         FastLED.setBrightness(DEFAULT_BRIGHTNESS);
     }
-    lastBeatDebounceTime = interruptTime;
-}
-
-
-/*
- * Debounces and toggles "flashing red lights mode" using a button. This does
- * exactly what it sounds like, and is likely to get the attention of you, your
- * cat, and just about everyone.
- */
-void toggleFlashingMode() {
-    uint64_t interruptTime = millis();
-    if (interruptTime - lastFlashDebounceTime > DEBOUNCE_DELAY) {
-        flashingMode = !flashingMode;
-    }
-    // Kill da beats
-    if (flashingMode) {
-        beatMode = false;
-        FastLED.setBrightness(DEFAULT_BRIGHTNESS);
-    }
-    lastFlashDebounceTime = interruptTime;
+    lastDebounceTime = interruptTime;
 }
 
 
@@ -240,16 +234,20 @@ void beatSyncMultiplesPattern() {
  * Pattern which blinks red lights (for use with button).
  */
 void blinkRedLightsPattern() {
+    static boolean lightsOn = true;
+    CRGB color;
+
+    if (lightsOn) {
+        color = CRGB::Red;
+    } else {
+        color = CRGB::Black;
+    }
+
     uint16_t i = 0;
     for (i = 0; i < NUM_LEDS; ++i) {
-        leds[i] = CRGB::Red;
+        leds[i] = color;
     }
-    FastLED.show();
-    delay(100);
-    for (i = 0; i < NUM_LEDS; ++i) {
-        leds[i] = CRGB::Black;
-    }
-    FastLED.show();
+    lightsOn = !lightsOn;
     delay(100);
 }
 
@@ -504,17 +502,12 @@ void nextPattern() {
 
 
 void setup() {
-    // Sets pins for both push buttons
-    pinMode(FLASHING_BUTTON_PIN, INPUT);
-    pinMode(BEAT_BUTTON_PIN, INPUT);
+    // Sets pin for mode push button
+    pinMode(MODE_BUTTON_PIN, INPUT);
 
-    // Attaches interrupts for changing the state of flashing lights mode and
-    // beat mode during LED animation.
+    // Attaches interrupts for changing the current animation mode
     attachInterrupt(
-        digitalPinToInterrupt(FLASHING_BUTTON_PIN), toggleFlashingMode,
-        RISING);
-    attachInterrupt(
-        digitalPinToInterrupt(BEAT_BUTTON_PIN), toggleBeatMode, RISING);
+        digitalPinToInterrupt(MODE_BUTTON_PIN), toggleMode, RISING);
 
     // Initialize the LED Strip.
     FastLED.addLeds<DOTSTAR, DATA_PIN, CLOCK_PIN>(
@@ -529,15 +522,19 @@ void setup() {
 
 
 void loop() {
-    // If beat mode is on, do da beats.
-    if (beatMode) {
-        FastLED.setBrightness(beatsin8(BPM, 0, MAX_BRIGHTNESS));
-    }
-    // Flash red lights or cycle through the patterns!
-    if (flashingMode) {
-        blinkRedLightsPattern();
-    } else {
-        patterns[currentPattern]();
+    // Do an action based on the current mode
+    switch (currentMode) {
+        case BEAT_MODE:
+            FastLED.setBrightness(beatsin8(BPM, 0, MAX_BRIGHTNESS));
+            patterns[currentPattern]();
+            break;
+        case FLASHING_RED_MODE:
+            blinkRedLightsPattern();
+            break;
+        case NORMAL_MODE:
+        default:
+            patterns[currentPattern]();
+            break;
     }
 
     FastLED.show(); // Show the LED's
